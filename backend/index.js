@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 dotenv.config();
 const userRouter = require("./Controllers/UserController");
+const cors = require("cors");
 mongoose
   .connect(process.env.MONGO_URL)
   .then(() => {
@@ -13,6 +14,7 @@ mongoose
     console.log("something went wrong");
   });
 app.use(express.json());
+app.use(cors());
 app.use("/api/user", userRouter);
 app.listen(5000, () => {
   console.log("server is running");
