@@ -3,7 +3,11 @@ const User = require("../Models/UserModel");
 const { body, validationResult } = require("express-validator");
 const bcrypt = require("bcrypt");
 var jwt = require("jsonwebtoken");
+const { generateOTP } = require("./OTP/mailOtp");
+const VerificationToken = require("../Models/TokenVerificationModel");
 const JWTSEC = "cattu123";
+const nodemailer = require("nodemailer");
+
 //Register
 router.post(
   "/create/user",
@@ -39,10 +43,81 @@ router.post(
       },
       JWTSEC
     );
+    const OTP = generateOTP();
+    const verificationToken = await VerificationToken.create({
+      user: user._id,
+      token: OTP,
+    });
+    verificationToken.save();
     await user.save();
-    res.status(200).json({ user, Token });
+    const transport = nodemailer.createTransport({
+      host: "sandbox.smtp.mailtrap.io",
+      port: 2525,
+      auth: {
+        user: process.env.USER,
+        pass: process.env.PASS,
+      },
+    });
+    transport.sendMail({
+      from: "sociaMedia@gmail.com",
+      to: user.email,
+      subject: "Verify your email using OTP",
+      html: `<h1>Your OTP CODE ${OTP}</h1>`,
+    });
+    res.status(200).json({
+      Status: "Pending",
+      msg: "Please check your email",
+      user: user._id,
+    });
+    // res.status(200).json({ user, Token });
   }
 );
+//verify mail
+
+router.post("/verify/email", async (req, res) => {
+  const { user, OTP } = req.body;
+  const currUser = await User.findById(user);
+  if (!currUser) {
+    return res.status(400).json("user not found");
+  }
+  if (currUser.verified == true) {
+    return res.status(400).json("user already verified");
+  }
+  const token = await VerificationToken.findOne({ user: currUser._id });
+  if (!token) {
+    return res.status(400).json("otp not found");
+  }
+  const Match = await bcrypt.compareSync(OTP, token.token);
+  if (!Match) {
+    return res.status(400).json("otp not valid");
+  }
+  currUser.verified = true;
+  await VerificationToken.findByIdAndDelete(token._id);
+  await currUser.save();
+  const accessToken = jwt.sign(
+    {
+      id: currUser._id,
+      username: currUser.username,
+    },
+    JWTSEC
+  );
+  const { password, ...other } = currUser._doc;
+  const transport = nodemailer.createTransport({
+    host: "smtp.mailtrap.io",
+    port: 2525,
+    auth: {
+      user: process.env.USER,
+      pass: process.env.PASS,
+    },
+  });
+  transport.sendMail({
+    from: "sociaMedia@gmail.com",
+    to: currUser.email,
+    subject: "Successfully verify your email",
+    html: `Now you can login in social app`,
+  });
+  return res.status(200).json({ other, accessToken });
+});
 
 //login
 
